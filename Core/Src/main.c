@@ -18,10 +18,11 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "fatfs.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <string.h>
+#include "string.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -31,6 +32,15 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+#define SaturaLH(N, L, H) 				(((N)<(L))?(L):(((N)>(H))?(H):(N)))
+
+#define AUDIO_BUFFER_SIZE							2000
+#define AUDIO_WAITING_SEND_SIGNAL			0
+#define AUDIO_WAITING_BUFFER					1
+#define AUDIO_HALF_BUFFER_AVIALABLE		2
+#define AUDIO_FULL_BUFFER_AVAILABLE		3
+
 
 /* USER CODE END PD */
 
@@ -44,22 +54,13 @@ DFSDM_Filter_HandleTypeDef hdfsdm1_filter0;
 DFSDM_Channel_HandleTypeDef hdfsdm1_channel2;
 DMA_HandleTypeDef hdma_dfsdm1_flt0;
 
-
-
-SPI_HandleTypeDef hspi3;
-
 UART_HandleTypeDef huart1;
-UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
 
-#define PCM_DATA_BUFFER_SIZE		1024
-
-uint8_t DFSDM_DMA_HalfCplt = 0;
-uint8_t DFSDM_DMA_FullCplt = 0;
-
-uint8_t dfsdm_buffer[PCM_DATA_BUFFER_SIZE] = {0};
-uint8_t pcm_data_buffer[PCM_DATA_BUFFER_SIZE] = {0};
+uint8_t audio_buffer_status 									= AUDIO_WAITING_SEND_SIGNAL;
+int32_t raw_audio_buff[AUDIO_BUFFER_SIZE] 		= {0};
+int32_t conv_audio_buff[AUDIO_BUFFER_SIZE] 		= {0};
 
 /* USER CODE END PV */
 
@@ -68,8 +69,6 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_USART1_UART_Init(void);
-static void MX_SPI3_Init(void);
-static void MX_USART3_UART_Init(void);
 static void MX_DFSDM1_Init(void);
 /* USER CODE BEGIN PFP */
 
@@ -110,9 +109,8 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_USART1_UART_Init();
-  MX_SPI3_Init();
-  MX_USART3_UART_Init();
   MX_DFSDM1_Init();
+  MX_FATFS_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -120,10 +118,51 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-  HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, pcm_data_buffer, PCM_DATA_BUFFER_SIZE);
+  uint8_t preambule[4] = "Send";
+  uint8_t rcv_data[4] = {0};
+
+  if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, raw_audio_buff, AUDIO_BUFFER_SIZE) != HAL_OK)
+  {
+	  Error_Handler();
+  }
 
   while (1)
   {
+
+		switch (audio_buffer_status)
+		{
+			case AUDIO_WAITING_SEND_SIGNAL:
+
+				if (HAL_UART_Receive(&huart1, (uint8_t *)rcv_data, 4, HAL_MAX_DELAY) == HAL_OK)
+				{
+					if (memcmp(rcv_data, preambule, 4) == 0)
+					{
+						// wait for DMA to fill buffer
+						audio_buffer_status = AUDIO_WAITING_BUFFER;
+					}
+				}
+				break;
+
+			case AUDIO_HALF_BUFFER_AVIALABLE:
+
+				for(uint16_t sample_index = 0; sample_index < AUDIO_BUFFER_SIZE / 2; sample_index ++)
+				{
+					conv_audio_buff[sample_index] = SaturaLH(((int32_t)raw_audio_buff[sample_index] >> 8), -32768, 32767);
+					HAL_UART_Transmit(&huart1, (uint8_t *)&conv_audio_buff[sample_index], 2, HAL_MAX_DELAY);
+				}
+				audio_buffer_status = AUDIO_WAITING_SEND_SIGNAL;
+				break;
+
+			case AUDIO_FULL_BUFFER_AVAILABLE:
+
+				for(uint16_t sample_index = AUDIO_BUFFER_SIZE / 2; sample_index < AUDIO_BUFFER_SIZE; sample_index ++)
+				{
+					conv_audio_buff[sample_index] = SaturaLH(((int32_t)raw_audio_buff[sample_index] >> 8), -32768, 32767);
+					HAL_UART_Transmit(&huart1, (uint8_t *)&conv_audio_buff[sample_index], 2, HAL_MAX_DELAY);
+				}
+				audio_buffer_status = AUDIO_WAITING_SEND_SIGNAL;
+				break;
+		}
 
 
     /* USER CODE END WHILE */
@@ -203,7 +242,7 @@ static void MX_DFSDM1_Init(void)
   hdfsdm1_filter0.Init.RegularParam.FastMode = ENABLE;
   hdfsdm1_filter0.Init.RegularParam.DmaMode = ENABLE;
   hdfsdm1_filter0.Init.FilterParam.SincOrder = DFSDM_FILTER_SINC3_ORDER;
-  hdfsdm1_filter0.Init.FilterParam.Oversampling = 250;
+  hdfsdm1_filter0.Init.FilterParam.Oversampling = 64;
   hdfsdm1_filter0.Init.FilterParam.IntOversampling = 1;
   if (HAL_DFSDM_FilterInit(&hdfsdm1_filter0) != HAL_OK)
   {
@@ -237,46 +276,6 @@ static void MX_DFSDM1_Init(void)
 }
 
 /**
-  * @brief SPI3 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_SPI3_Init(void)
-{
-
-  /* USER CODE BEGIN SPI3_Init 0 */
-
-  /* USER CODE END SPI3_Init 0 */
-
-  /* USER CODE BEGIN SPI3_Init 1 */
-
-  /* USER CODE END SPI3_Init 1 */
-  /* SPI3 parameter configuration*/
-  hspi3.Instance = SPI3;
-  hspi3.Init.Mode = SPI_MODE_MASTER;
-  hspi3.Init.Direction = SPI_DIRECTION_2LINES;
-  hspi3.Init.DataSize = SPI_DATASIZE_16BIT;
-  hspi3.Init.CLKPolarity = SPI_POLARITY_LOW;
-  hspi3.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi3.Init.NSS = SPI_NSS_SOFT;
-  hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
-  hspi3.Init.FirstBit = SPI_FIRSTBIT_LSB;
-  hspi3.Init.TIMode = SPI_TIMODE_DISABLE;
-  hspi3.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
-  hspi3.Init.CRCPolynomial = 7;
-  hspi3.Init.CRCLength = SPI_CRC_LENGTH_DATASIZE;
-  hspi3.Init.NSSPMode = SPI_NSS_PULSE_ENABLE;
-  if (HAL_SPI_Init(&hspi3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN SPI3_Init 2 */
-
-  /* USER CODE END SPI3_Init 2 */
-
-}
-
-/**
   * @brief USART1 Initialization Function
   * @param None
   * @retval None
@@ -292,7 +291,7 @@ static void MX_USART1_UART_Init(void)
 
   /* USER CODE END USART1_Init 1 */
   huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
+  huart1.Init.BaudRate = 1200000;
   huart1.Init.WordLength = UART_WORDLENGTH_8B;
   huart1.Init.StopBits = UART_STOPBITS_1;
   huart1.Init.Parity = UART_PARITY_NONE;
@@ -308,41 +307,6 @@ static void MX_USART1_UART_Init(void)
   /* USER CODE BEGIN USART1_Init 2 */
 
   /* USER CODE END USART1_Init 2 */
-
-}
-
-/**
-  * @brief USART3 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART3_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART3_Init 0 */
-
-  /* USER CODE END USART3_Init 0 */
-
-  /* USER CODE BEGIN USART3_Init 1 */
-
-  /* USER CODE END USART3_Init 1 */
-  huart3.Instance = USART3;
-  huart3.Init.BaudRate = 115200;
-  huart3.Init.WordLength = UART_WORDLENGTH_8B;
-  huart3.Init.StopBits = UART_STOPBITS_1;
-  huart3.Init.Parity = UART_PARITY_NONE;
-  huart3.Init.Mode = UART_MODE_TX_RX;
-  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart3.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart3.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART3_Init 2 */
-
-  /* USER CODE END USART3_Init 2 */
 
 }
 
@@ -508,6 +472,14 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Alternate = GPIO_AF4_I2C2;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
+  /*Configure GPIO pins : INTERNAL_UART3_TX_Pin INTERNAL_UART3_RX_Pin */
+  GPIO_InitStruct.Pin = INTERNAL_UART3_TX_Pin|INTERNAL_UART3_RX_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  GPIO_InitStruct.Alternate = GPIO_AF7_USART3;
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
   /*Configure GPIO pins : LPS22HB_INT_DRDY_EXTI0_Pin LSM6DSL_INT1_EXTI11_Pin ARD_D2_Pin HTS221_DRDY_EXTI15_Pin
                            PMOD_IRQ_EXTI12_Pin */
   GPIO_InitStruct.Pin = LPS22HB_INT_DRDY_EXTI0_Pin|LSM6DSL_INT1_EXTI11_Pin|ARD_D2_Pin|HTS221_DRDY_EXTI15_Pin
@@ -550,6 +522,14 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Alternate = GPIO_AF10_OTG_FS;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
+  /*Configure GPIO pins : INTERNAL_SPI3_SCK_Pin INTERNAL_SPI3_MISO_Pin INTERNAL_SPI3_MOSI_Pin */
+  GPIO_InitStruct.Pin = INTERNAL_SPI3_SCK_Pin|INTERNAL_SPI3_MISO_Pin|INTERNAL_SPI3_MOSI_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  GPIO_InitStruct.Alternate = GPIO_AF6_SPI3;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
   /*Configure GPIO pin : PMOD_SPI2_SCK_Pin */
   GPIO_InitStruct.Pin = PMOD_SPI2_SCK_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
@@ -584,19 +564,21 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-
 void HAL_DFSDM_FilterRegConvHalfCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter)
 {
-	DFSDM_DMA_HalfCplt = 1;
+	if(audio_buffer_status == AUDIO_WAITING_BUFFER)
+	{
+		audio_buffer_status = AUDIO_HALF_BUFFER_AVIALABLE;
+	}
 }
-
 
 void HAL_DFSDM_FilterRegConvCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter)
 {
-	DFSDM_DMA_FullCplt = 1;
+	if(audio_buffer_status == AUDIO_WAITING_BUFFER)
+	{
+		audio_buffer_status = AUDIO_FULL_BUFFER_AVAILABLE;
+	}
 }
-
-
 
 /* USER CODE END 4 */
 
