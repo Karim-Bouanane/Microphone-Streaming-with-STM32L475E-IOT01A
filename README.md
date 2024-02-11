@@ -12,12 +12,14 @@
   - [**2.3 DFSDM Clock Output**](#23-dfsdm-clock-output)
   - [**2.4 DFSDM Output Frequency**](#24-dfsdm-output-frequency)
   - [**2.5 DFSDM Output Resolution**](#25-dfsdm-output-resolution)
+- [3. WiFi Module](#3-wifi-module)
 - [**References**](#references)
 
 
 # **1. Global Configurations**
 
 ## **1.1 RCC Clock**
+
 
 
 
@@ -28,7 +30,7 @@
 The STM32L475E-IOT01A board features a stereo microphone configuration with two microphones connected to the DFSDM (Digital Filter for Sigma-Delta Modulators) peripheral via channel 2. These microphones utilize the DFSDM1 pins to receive clock signals for data sampling and output. The schematic image below illustrates the connection setup between the two microphones and the DFSDM1 pins on the board:
 
 <div style="text-align:center">
-  <img src="img/Microphones_Schematic.png">
+  <img src="./img/Microphones_Schematic.png">
 </div>
 
 
@@ -39,7 +41,7 @@ There are two microphones both connected to Input Channel 2 of the DFSDM1, as il
 So there is a need for two Channels to process data from two microphones; the configuration is explained in Section 2.3.2.
 
 <div style="text-align:center">
-  <img src="img/Stereo_Channel_MIC_data.png" width="600" height="300">
+  <img src="./img/Stereo_Channel_MIC_data.png" width="600" height="300">
 </div>
 
 
@@ -49,7 +51,7 @@ In this project, I am using only one microphone and, therefore, using one channe
 
 
 <div style="text-align:center">
-  <img src="img/DFSDM1_Channels_for_one_MIC.png" width="600" height="600">
+  <img src="./img/DFSDM1_Channels_for_one_MIC.png" width="600" height="600">
 </div>
 
 
@@ -58,7 +60,7 @@ In this project, I am using only one microphone and, therefore, using one channe
 I figured out that in the DFSDM peripheral, each channel can redirect data to its preceding channel. So, Channel 1 can take the input data of Channel 2, and we configure each one with different types of edges so that one could acquire the left channel data, and the other could acquire the right channel data. See the configuration in the following image:
 
 <div style="text-align:center">
-  <img src="img/DFSDM1_Channels_for_two_MICs.png" width="600" height="600">
+  <img src="./img/DFSDM1_Channels_for_two_MICs.png" width="600" height="600">
 </div>
 
 
@@ -68,13 +70,13 @@ From the MP34DT01 datasheet, we can observe the permissible range of clock frequ
 https://www.st.com/resource/en/datasheet/mp34dt01-m.pdf
 
 <div style="text-align:center">
-  <img src="img/MP34DT01-m_characteristics.png" width="600" height="600">
+  <img src="./img/MP34DT01-m_characteristics.png" width="600" height="600">
 </div>
 
 So, I configured the output clock from the DFSDM peripheral to 2 MHz by selecting the system clock as the clock source and applying a divider of 40 (80 MHz / 40 = 2 MHz).
 
 <div style="text-align:center">
-  <img src="img/DFSDM1_Clock_Output.png">
+  <img src="./img/DFSDM1_Clock_Output.png">
 </div>
 
 
@@ -87,7 +89,7 @@ To achieve the desired sampling frequency, four filters can be associated with a
 In my case, I have configured the output clock to 2 MHz, and I chose the value 64 for FOSR so that I can achieve a frequency of 31,250 Hz. See the configuration in the following image:
 
 <div style="text-align:center">
-  <img src="img/DFSDM1_Filters.png">
+  <img src="./img/DFSDM1_Filters.png">
 </div>
 
 ## **2.5 DFSDM Output Resolution**
@@ -95,7 +97,7 @@ In my case, I have configured the output clock to 2 MHz, and I chose the value 6
 The output resolution of samples is determined by the filter type and the FOSR value, as illustrated in the following table, which was extracted from the microcontroller datasheet [3].
 
 <div style="text-align:center">
-  <img src="img/DFSDM1_Filter_Maximum_Output_Resolution.png" width="600" >
+  <img src="./img/DFSDM1_Filter_Maximum_Output_Resolution.png" width="600" >
 </div>
 
 So, in my case, I chose the filter type Sinc3 and an FOSR value of 64, resulting in an output of signed 19 bits: +-262144.
@@ -105,7 +107,16 @@ So, in my case, I chose the filter type Sinc3 and an FOSR value of 64, resulting
 The filter's maximum resolution is 24 bits; exceeding it will loose the higher bits of data. 
 
 
+# 3. WiFi Module
+
+WiFi Driver:
+https://github.com/STMicroelectronics/STM32CubeL4/tree/master/Projects/B-L475E-IOT01A/Applications/WiFi
+
+
 # **References**
+
+
+
 
 - **Microcontroller:**
 
