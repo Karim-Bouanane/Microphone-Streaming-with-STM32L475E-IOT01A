@@ -1,0 +1,5 @@
+../Drivers/ISM43362_Driver/Src/es_wifi_io.c:44:8:SPI_WIFI_Init	24	static
+../Drivers/ISM43362_Driver/Src/es_wifi_io.c:94:8:SPI_WIFI_DeInit	8	static
+../Drivers/ISM43362_Driver/Src/es_wifi_io.c:107:9:SPI_WIFI_ReceiveData	40	static
+../Drivers/ISM43362_Driver/Src/es_wifi_io.c:179:9:SPI_WIFI_SendData	32	static
+../Drivers/ISM43362_Driver/Src/es_wifi_io.c:223:6:SPI_WIFI_Delay	16	static
